@@ -1,7 +1,7 @@
 # neofs
 A file manager for neovim written in lua
 
-TODO: insert image
+![](https://user-images.githubusercontent.com/32014449/97745900-d51bc080-1ae9-11eb-9a80-199b69a357ea.png)
 
 ## Mappings
 
