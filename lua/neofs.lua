@@ -1,10 +1,12 @@
-local devicons = require('nvim-web-devicons')
 local M = {
   fm = nil,
   config = {
-    devicons = false
+    devicons = false,
+    mappings = {}
   }
 }
+
+NeofsCustomMappings = {}
 
 M.util = {}
 
@@ -85,6 +87,9 @@ end
 
 function NeofsCreateFile()
   local name = vim.fn.input('New File: ')
+  if name == "" then
+    return
+  end
   local file = vim.loop.fs_open(M.fm.path .. M.fs_seperator .. name, 'w', 777)
   vim.loop.fs_close(file)
   NeofsRefresh()
@@ -92,6 +97,9 @@ end
 
 function NeofsCreateDirectory()
   local name = vim.fn.input('New Directory: ')
+  if name == "" then
+    return
+  end
   vim.loop.fs_mkdir(M.fm.path .. M.fs_seperator .. name, 777)
   NeofsRefresh()
 end
@@ -131,13 +139,22 @@ function NeofsDelete(recursive)
 end
 
 local function item_to_display_text(item)
-  if item.stat.type == 'file' then
-    local ext_tokens = vim.split(item.name, '.', true)
-    local ext = ext_tokens[#ext_tokens]
-    local icon = devicons.get_icon(item.name, ext, { default = true })
-    return icon .. " " .. item.name
+  if M.config.devicons then
+    local devicons = require('nvim-web-devicons')
+    if item.stat.type == 'file' then
+      local ext_tokens = vim.split(item.name, '.', true)
+      local ext = ext_tokens[#ext_tokens]
+      local icon = devicons.get_icon(item.name, ext, { default = true })
+      return icon .. " " .. item.name
+    else
+      return " " .. item.name
+    end
   else
-    return " " .. item.name
+    if item.stat.type == 'file' then
+      return "F " .. item.name
+    else
+      return "D " .. item.name
+    end
   end
 end
 
@@ -156,14 +173,24 @@ function NeofsRename()
       cancelreturn = item.path
     }
 
+    if name == "" then
+      return
+    end
+
     vim.loop.fs_rename(item.path, name)
 
     M.fm.refresh()
   end
 end
 
+function NeofsCallCustomMapping(id)
+  NeofsCustomMappings[id](M.fm)
+end
+
 function NeofsQuit()
   if M.fm then
+    vim.api.nvim_win_close(M.fm.decorations.window, false)
+
     vim.api.nvim_buf_call(M.fm.navigator.buffer, function()
       vim.cmd [[au! * <buffer>]]
     end)
@@ -194,6 +221,11 @@ local function define_mappings(buffer)
 
     mappings['n']['q'] = [[:lua NeofsQuit()<CR>]]
 
+    for lhs, rhs in pairs(M.config.mappings) do
+      table.insert(NeofsCustomMappings, rhs)
+      mappings['n'][lhs] = string.format([[:lua NeofsCallCustomMapping(%d)<CR>]], #NeofsCustomMappings)
+    end
+
     for mode, mappings in pairs(mappings) do
       for lhs, rhs in pairs(mappings) do
         vim.api.nvim_buf_set_keymap(buffer, mode, lhs, rhs, {
@@ -217,6 +249,10 @@ end
 local function fm_new(path)
   local fm = {
     path = path,
+    decorations = {
+      buffer = nil,
+      window = nil,
+    },
     navigator = {
       window = nil,
       buffer = nil,
@@ -284,11 +320,36 @@ local function fm_new(path)
   return fm
 end
 
-function M.open() 
+function M.open(path) 
+  path = path or vim.loop.cwd()
   if not M.fm then
-    local fm = fm_new(vim.loop.cwd())
+    local fm = fm_new(path)
     local vim_height = vim.api.nvim_eval [[&lines]]
     local vim_width = vim.api.nvim_eval [[&columns]]
+
+    local width = math.floor(vim_width * 0.8) + 5
+    local height = math.floor(vim_height * 0.7) + 2
+    local col = vim_width * 0.1 - 2
+    local row = vim_height * 0.15 - 1
+
+    fm.decorations.buffer = vim.api.nvim_create_buf(false, true)
+    fm.decorations.window = vim.api.nvim_open_win(fm.decorations.buffer, true, {
+      relative = 'editor',
+      width = width,
+      height = height,
+      col = col,
+      row = row,
+      style = 'minimal',
+      focusable = false
+    })
+
+    vim.wo.winhl = "Normal:Normal"
+
+    vim.api.nvim_buf_set_lines(fm.decorations.buffer, 0, 1, false, { "┌" .. string.rep('─', width - 2) .. "┐" })
+    for i=2,height-1 do
+      vim.api.nvim_buf_set_lines(fm.decorations.buffer, i - 1, i, false, { "│" .. string.rep(' ', width - 2) .. "│"})
+    end
+    vim.api.nvim_buf_set_lines(fm.decorations.buffer, height - 1, -1, false, { "└" .. string.rep('─', width - 2) .. "┘" })
 
     local width = math.floor(vim_width * 0.4)
     local height = math.floor(vim_height * 0.7)
@@ -307,6 +368,7 @@ function M.open()
 
     define_mappings(fm.navigator.buffer)
 
+    vim.wo.winhl = "Normal:Normal"
     vim.wo[fm.navigator.window].cursorline = true
     vim.bo.readonly = true
     vim.bo.modifiable = false
@@ -314,7 +376,7 @@ function M.open()
 
     local width = math.floor(vim_width * 0.4)
     local height = math.floor(vim_height * 0.7)
-    local col = vim_width * 0.1 + width
+    local col = vim_width * 0.1 + width + 1
     local row = vim_height * 0.15
 
     fm.preview.buffer = vim.api.nvim_create_buf(false, true)
@@ -328,6 +390,7 @@ function M.open()
       focusable = false
     })
 
+    vim.wo.winhl = "Normal:Normal"
     vim.wo[fm.preview.window].cursorline = false
     vim.bo.readonly = true
     vim.bo.modifiable = false
@@ -335,7 +398,10 @@ function M.open()
 
     fm.refresh()
 
-    vim.api.nvim_set_current_win(fm.navigator.window)
+    -- Have to defer this, else the preview window disappears ??? like what the fuck
+    vim.defer_fn(function()
+      vim.api.nvim_set_current_win(fm.navigator.window)
+    end, 10)
 
     M.fm = fm
   end
