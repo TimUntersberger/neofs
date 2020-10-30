@@ -27,7 +27,11 @@ else
 end
 
 function M.util.fs_readdir(dir)
-  return M.util.map(vim.fn.systemlist("dir /b " .. dir), function (x)
+  local cmd = "dir /b "
+  if not M.is_windows then
+    cmd = "ls "
+  end
+  return M.util.map(vim.fn.systemlist(cmd .. dir), function (x)
     local name = x:sub(1, -2)
     local path = dir .. M.fs_seperator .. name
 
