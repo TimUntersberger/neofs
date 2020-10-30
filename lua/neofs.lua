@@ -90,7 +90,7 @@ function NeofsCreateFile()
   if name == "" then
     return
   end
-  local file = vim.loop.fs_open(M.fm.path .. M.fs_seperator .. name, 'w', 777)
+  local file = vim.loop.fs_open(M.fm.path .. M.fs_seperator .. name, 'w', 0640)
   vim.loop.fs_close(file)
   NeofsRefresh()
 end
@@ -100,7 +100,7 @@ function NeofsCreateDirectory()
   if name == "" then
     return
   end
-  vim.loop.fs_mkdir(M.fm.path .. M.fs_seperator .. name, 777)
+  vim.loop.fs_mkdir(M.fm.path .. M.fs_seperator .. name, 0640)
   NeofsRefresh()
 end
 
@@ -212,6 +212,7 @@ local function define_mappings(buffer)
     mappings['n']['j'] = [[:lua NeofsMove('down')<CR>]]
     mappings['n']['k'] = [[:lua NeofsMove('up')<CR>]]
     mappings['n']['l'] = [[:lua NeofsMove('right')<CR>]]
+    mappings['n']['<cr>'] = [[:lua NeofsMove('right')<CR>]]
 
     mappings['n']['f'] = [[:lua NeofsCreateFile()<CR>]]
     mappings['n']['d'] = [[:lua NeofsCreateDirectory()<CR>]]
@@ -283,7 +284,7 @@ local function fm_new(path)
     if item.stat.type == "file" then
       local file = vim.loop.fs_open(item.path, "r", 777)
       local content = vim.loop.fs_read(file, item.stat.size, 0)
-      local lines = vim.split(content, "\r\n")
+      local lines = vim.split(content, "\r?\n")
       vim.loop.fs_close(file)
       vim.api.nvim_buf_call(fm.preview.buffer, function()
         vim.bo.readonly = false
