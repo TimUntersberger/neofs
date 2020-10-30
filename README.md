@@ -54,4 +54,34 @@ This requires you to have `kyazdani42/nvim-web-devicons` installed.
 
 ## File Manager
 
-TODO: Describe API
+### Fields
+
+* decorations (The border)
+* navigator (The left window)
+* preview (The right window)
+* path (The current path for the navigator)
+
+To see more details about each field you can use `print(vim.inspect(...))`
+
+### Functions
+
+#### navigator.item()
+
+Returns the item under the cursor.
+
+An item has the following fields:
+
+* path (The absolute path of the item)
+* stat (fs_stat result)
+
+#### refresh()
+
+Refreshes the content of the navigator window using the `path` field and reloads the preview window.
+
+#### refresh_preview()
+
+Reloads the preview window using the item under the cursor.
+
+#### parent()
+
+Returns the parent folder of the current path.
