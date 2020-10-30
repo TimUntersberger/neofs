@@ -1,16 +1,57 @@
 # neofs
-A file manager for neovim
+A file manager for neovim written in lua
 
-## Initial Ideas
+TODO: insert image
 
-The idea is that it runs in neovim without any dependencies.
+## Mappings
 
-Given the following ranger example:
+| Key           | Description                                     |
+|---------------|-------------------------------------------------|
+| `<CR>` or `l` | Open folder or open file in the previous window |
+| `0`           | Open the CWD                                    |
+| `h`           | Open the parent folder of the current path      |
+| `f`           | Create a new file                               |
+| `d`           | Create a new directory                          |
+| `<c-r>`       | Rename current item                             |
+| `<c-d>`       | Delete current item                             |
+| `<m-c-d>`     | Recursively delete current item                 |
+| `q`           | Quit                                            |
 
-The file manager itself lives in a floating window, while every tab would be a seperate window.
+## Custom Mappings
 
-Support a view like nnn/netrw where you only see a list of the current directory would also be cool to support.
+If you want to have some custom mappings defined whenever the file browser is open you can set them using the `setup` function.
 
-Maybe you configure this using a config value?
+Each callback receives the file manager as its first argument.
 
-The file manager uses intuitive keybindings that are easy to access, to make using the file manager a pleasure.
+To see what you can do with the file manager look at [this section](#file-manager)
+
+```lua
+local neofs = require('neofs')
+
+neofs.setup {
+  mappings = {
+    ["<c-e>w"] = function(fm)
+      fm.path = vim.fn.expand("~/Desktop/workspace")
+      fm.refresh()
+    end
+  }
+}
+```
+
+## Devicons
+
+Neofs supports devicons if you set `devicons` to `true`.
+
+```lua
+local neofs = require('neofs')
+
+neofs.setup {
+  devicons = true
+}
+```
+
+This requires you to have `kyazdani42/nvim-web-devicons` installed.
+
+## File Manager
+
+TODO: Describe API

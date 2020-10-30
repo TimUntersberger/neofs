@@ -204,6 +204,14 @@ function NeofsQuit()
   end
 end
 
+function NeofsOnCursorMoved()
+  if M.fm then
+    local pos = vim.api.nvim_win_get_cursor(M.fm.navigator.window)
+    M.fm.navigator.row = pos[1]
+    M.fm.refresh_preview()
+  end
+end
+
 local function define_mappings(buffer)
     local mappings = { n = {} }
 
@@ -374,6 +382,7 @@ function M.open(path)
     vim.bo.readonly = true
     vim.bo.modifiable = false
     vim.cmd [[au WinClosed <buffer> lua NeofsQuit()]]
+    vim.cmd [[au CursorMoved <buffer> lua NeofsOnCursorMoved()]]
 
     local width = math.floor(vim_width * 0.4)
     local height = math.floor(vim_height * 0.7)
