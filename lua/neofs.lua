@@ -1,13 +1,9 @@
--- TODO: Use a hidden "input" window that contains input focus so you don't have to see the cursor in the file manager
-
 local devicons = require('nvim-web-devicons')
 local M = {
-  tabs = {},
-  tab_idx = nil,
-}
-
-M.config = {
-  devicons = false
+  fm = nil,
+  config = {
+    devicons = false
+  }
 }
 
 M.util = {}
@@ -43,41 +39,43 @@ end
 
 function NeofsMove(direction)
   local move_handler = {
+    root = function()
+      M.fm.path = vim.loop.cwd()
+      M.fm.refresh()
+    end,
     right = function()
-      local tab = M.tabs[M.tab_idx]
-      local item = tab.items[tab.row]
+      local item = M.fm.navigator.item()
+
+      if not item then
+        return
+      end
+
       if item.stat.type == "file" then
         NeofsQuit()
         vim.cmd("e " .. item.path)
       else
-        local tab = M.new_tab(M.tab_idx + 1, item.path)
+        M.fm.path = item.path
+        M.fm.refresh()
       end
     end,
     left = function()
-      if M.tab_idx ~= 1 then
-        local tab = M.tabs[M.tab_idx]
-        -- to avoid calling NeofsQuit
-        vim.api.nvim_buf_call(tab.buffer, function()
-          vim.cmd [[au! * <buffer>]]
-        end)
-        vim.api.nvim_win_close(tab.win, false)
-        M.tabs[M.tab_idx] = nil
-        M.tab_idx = #M.tabs
-        NeofsReposition()
-      end
+      M.fm.path = M.fm.parent()
+      M.fm.refresh()
     end,
     down = function()
-      local tab = M.tabs[M.tab_idx]
-      if tab.row ~= #tab.items then
-        tab.row = tab.row + 1
-        vim.api.nvim_win_set_cursor(tab.win, { tab.row, 0 })
+      local navigator = M.fm.navigator
+      if navigator.row ~= #navigator.items then
+        navigator.row = navigator.row + 1
+        vim.api.nvim_win_set_cursor(navigator.window, { navigator.row, 0 })
+        M.fm.refresh_preview()
       end
     end,
     up = function()
-      local tab = M.tabs[M.tab_idx]
-      if tab.row ~= 1 then
-        tab.row = tab.row - 1
-        vim.api.nvim_win_set_cursor(tab.win, { tab.row, 0 })
+      local navigator = M.fm.navigator
+      if navigator.row ~= 1 then
+        navigator.row = navigator.row - 1
+        vim.api.nvim_win_set_cursor(navigator.window, { navigator.row, 0 })
+        M.fm.refresh_preview()
       end
     end,
   }
@@ -86,51 +84,49 @@ function NeofsMove(direction)
 end
 
 function NeofsCreateFile()
-  local tab = M.tabs[M.tab_idx]
   local name = vim.fn.input('New File: ')
-  local file = vim.loop.fs_open(tab.path .. M.fs_seperator .. name, 'w', 777)
+  local file = vim.loop.fs_open(M.fm.path .. M.fs_seperator .. name, 'w', 777)
   vim.loop.fs_close(file)
   NeofsRefresh()
 end
 
 function NeofsCreateDirectory()
-  local tab = M.tabs[M.tab_idx]
   local name = vim.fn.input('New Directory: ')
-  vim.loop.fs_mkdir(tab.path .. M.fs_seperator .. name, 777)
+  vim.loop.fs_mkdir(M.fm.path .. M.fs_seperator .. name, 777)
   NeofsRefresh()
 end
 
-function NeofsDelete()
-  local tab = M.tabs[M.tab_idx]
-  local item = tab.items[tab.row]
-
+local function fs_delete_rec(item)
   if item.stat.type == "file" then
-    if vim.fn.confirm(string.format("Are you sure you want to delete the file '%s'?", item.name), '&Yes\n&No') == 1 then
-      vim.loop.fs_unlink(item.path)
-    end
+    vim.loop.fs_unlink(item.path)
   else
-    if vim.fn.confirm(string.format("Are you sure you want to delete the directory '%s'?", item.name), '&Yes\n&No') == 1 then
-      vim.loop.fs_rmdir(item.path)
+    for _, item in ipairs(M.util.fs_readdir(item.path)) do
+      fs_delete_rec(item)
     end
+    vim.loop.fs_rmdir(item.path)
+  end
+end
+
+function NeofsDelete(recursive)
+  local item = M.fm.navigator.item()
+  local message = string.format("Are you sure you want to delete '%s'?", item.name)
+
+  if recursive then
+    message = message .. " [RECURSIVE]"
   end
 
-  NeofsRefresh()
-end
+  if vim.fn.confirm(message, '&Yes\n&No') == 1 then
+    if item.stat.type == "file" then
+      vim.loop.fs_unlink(item.path)
+    else
+      if recursive then
+        fs_delete_rec(item)
+      else
+        vim.loop.fs_rmdir(item.path)
+      end
+    end
 
-function NeofsReposition()
-  local vim_height = vim.api.nvim_eval [[&lines]]
-  local vim_width = vim.api.nvim_eval [[&columns]]
-  local width = math.floor(vim_width * 0.6 / #M.tabs)
-  local height = math.floor(vim_height * 0.6)
-
-  for idx, tab in ipairs(M.tabs) do
-    vim.api.nvim_win_set_config(tab.win, {
-      relative = 'editor',
-      width = width,
-      height = height,
-      col = (vim_width * 0.2) + width * (idx - 1),
-      row = vim_height * 0.2
-    })
+    M.fm.refresh()
   end
 end
 
@@ -146,96 +142,203 @@ local function item_to_display_text(item)
 end
 
 function NeofsRefresh()
-  local tab = M.tabs[M.tab_idx]
-  tab.items = M.util.fs_readdir(tab.path)
-
-  vim.api.nvim_buf_set_lines(tab.buffer, 0, -1, false, M.util.map(tab.items, item_to_display_text))
-
-  if tab.row > #tab.items then
-    tab.row = tab.row - 1
+  if M.fm then
+    M.fm.refresh()
   end
+end
 
-  vim.api.nvim_win_set_cursor(tab.win, { tab.row, 0 })
+function NeofsRename()
+  if M.fm then
+    local item = M.fm.navigator.item()
+    local name = vim.fn.input {
+      prompt = 'Rename: ',
+      default = item.path,
+      cancelreturn = item.path
+    }
+
+    vim.loop.fs_rename(item.path, name)
+
+    M.fm.refresh()
+  end
 end
 
 function NeofsQuit()
-  local count = #M.tabs
+  if M.fm then
+    vim.api.nvim_buf_call(M.fm.navigator.buffer, function()
+      vim.cmd [[au! * <buffer>]]
+    end)
+    vim.api.nvim_win_close(M.fm.navigator.window, false)
 
-  M.tabs = {}
-  M.tab_idx = nil
-
-  for i=1,count do
-    vim.cmd [[:quit]]
+    vim.api.nvim_buf_call(M.fm.preview.buffer, function()
+      vim.cmd [[au! * <buffer>]]
+    end)
+    vim.api.nvim_win_close(M.fm.preview.window, false)
+    M.fm = nil
   end
 end
 
-function M.new_tab(idx, path)
-  local vim_height = vim.api.nvim_eval [[&lines]]
-  local vim_width = vim.api.nvim_eval [[&columns]]
-  local width = math.floor(vim_width * 0.6 / (#M.tabs + 1))
-  local height = math.floor(vim_height * 0.6)
-  local col = (vim_width * 0.2) + width * (idx - 1)
-  local row = vim_height * 0.2
+local function define_mappings(buffer)
+    local mappings = { n = {} }
 
-  local buffer = vim.api.nvim_create_buf(false, true)
-  local win = vim.api.nvim_open_win(buffer, true, {
-    relative = 'editor',
-    width = width,
-    height = height,
-    col = col,
-    row = row,
-    style = 'minimal'
-  })
+    mappings['n']['0'] = [[:lua NeofsMove('root')<CR>]]
+    mappings['n']['h'] = [[:lua NeofsMove('left')<CR>]]
+    mappings['n']['j'] = [[:lua NeofsMove('down')<CR>]]
+    mappings['n']['k'] = [[:lua NeofsMove('up')<CR>]]
+    mappings['n']['l'] = [[:lua NeofsMove('right')<CR>]]
 
-  vim.wo.cursorline = true
+    mappings['n']['f'] = [[:lua NeofsCreateFile()<CR>]]
+    mappings['n']['d'] = [[:lua NeofsCreateDirectory()<CR>]]
+    mappings['n']['<c-r>'] = [[:lua NeofsRename()<CR>]]
+    mappings['n']['<c-d>'] = [[:lua NeofsDelete(false)<CR>]]
+    mappings['n']['<m-c-d>'] = [[:lua NeofsDelete(true)<CR>]]
 
-  local mappings = { n = {} }
+    mappings['n']['q'] = [[:lua NeofsQuit()<CR>]]
 
-  mappings['n']['h'] = [[:lua NeofsMove('left')<CR>]]
-  mappings['n']['j'] = [[:lua NeofsMove('down')<CR>]]
-  mappings['n']['k'] = [[:lua NeofsMove('up')<CR>]]
-  mappings['n']['l'] = [[:lua NeofsMove('right')<CR>]]
+    for mode, mappings in pairs(mappings) do
+      for lhs, rhs in pairs(mappings) do
+        vim.api.nvim_buf_set_keymap(buffer, mode, lhs, rhs, {
+          noremap = true,
+          silent = true
+        })
+      end
+    end
+end
 
-  mappings['n']['f'] = [[:lua NeofsCreateFile()<CR>]]
-  mappings['n']['d'] = [[:lua NeofsCreateDirectory()<CR>]]
-  mappings['n']['<c-d>'] = [[:lua NeofsDelete()<CR>]]
+local function display_items(buffer, items)
+  vim.api.nvim_buf_call(buffer, function()
+    vim.bo.readonly = false
+    vim.bo.modifiable = true
+    vim.api.nvim_buf_set_lines(buffer, 0, -1, false, M.util.map(items, item_to_display_text))
+    vim.bo.readonly = true
+    vim.bo.modifiable = false
+  end)
+end
 
-  mappings['n']['q'] = [[:lua NeofsQuit()<CR>]]
+local function fm_new(path)
+  local fm = {
+    path = path,
+    navigator = {
+      window = nil,
+      buffer = nil,
+      items = {},
+      row = 1,
+    },
+    preview = {
+      window = nil,
+      buffer = nil,
+    }
+  }
 
-  for mode, mappings in pairs(mappings) do
-    for lhs, rhs in pairs(mappings) do
-      vim.api.nvim_buf_set_keymap(buffer, mode, lhs, rhs, {
-        noremap = true,
-        silent = true
-      })
+  function fm.navigator.item()
+    return fm.navigator.items[fm.navigator.row]
+  end
+
+  function fm.parent()
+    return vim.fn.fnamemodify(fm.path, ':h')
+  end
+
+  function fm.refresh_preview()
+    local item = fm.navigator.item()
+
+    if not item then
+      return
+    end
+
+    if item.stat.type == "file" then
+      local file = vim.loop.fs_open(item.path, "r", 777)
+      local content = vim.loop.fs_read(file, item.stat.size, 0)
+      local lines = vim.split(content, "\r\n")
+      vim.loop.fs_close(file)
+      vim.api.nvim_buf_call(fm.preview.buffer, function()
+        vim.bo.readonly = false
+        vim.bo.modifiable = true
+        vim.api.nvim_buf_set_lines(fm.preview.buffer, 0, -1, false, lines)
+        vim.bo.readonly = true
+        vim.bo.modifiable = false
+      end)
+    else
+      display_items(fm.preview.buffer, M.util.fs_readdir(item.path))
     end
   end
 
-  vim.cmd [[au WinClosed <buffer> lua NeofsQuit()]]
+  function fm.refresh()
+    fm.navigator.items = M.util.fs_readdir(fm.path)
 
-  local items = M.util.fs_readdir(path)
+    display_items(fm.navigator.buffer, fm.navigator.items)
 
-  vim.api.nvim_buf_set_lines(buffer, 0, -1, false, M.util.map(items, item_to_display_text))
-  
-  M.tab_idx = idx
+    local item_count = #fm.navigator.items
 
-  local tab = {
-    buffer = buffer,
-    path = path,
-    row = 1,
-    win = win,
-    items = items
-  }
+    if fm.navigator.row > item_count then
+      fm.navigator.row = item_count 
 
-  NeofsReposition()
+      if fm.navigator.row == 0 then
+        fm.navigator.row = 1
+      end
+    end
 
-  table.insert(M.tabs, tab)
+    vim.api.nvim_win_set_cursor(fm.navigator.window, { fm.navigator.row, 0 })
 
-  return tab
+    fm.refresh_preview()
+  end
+
+  return fm
 end
 
 function M.open() 
-  M.new_tab(1, vim.loop.cwd())
+  if not M.fm then
+    local fm = fm_new(vim.loop.cwd())
+    local vim_height = vim.api.nvim_eval [[&lines]]
+    local vim_width = vim.api.nvim_eval [[&columns]]
+
+    local width = math.floor(vim_width * 0.4)
+    local height = math.floor(vim_height * 0.7)
+    local col = vim_width * 0.1
+    local row = vim_height * 0.15
+
+    fm.navigator.buffer = vim.api.nvim_create_buf(false, true)
+    fm.navigator.window = vim.api.nvim_open_win(fm.navigator.buffer, true, {
+      relative = 'editor',
+      width = width,
+      height = height,
+      col = col,
+      row = row,
+      style = 'minimal'
+    })
+
+    define_mappings(fm.navigator.buffer)
+
+    vim.wo[fm.navigator.window].cursorline = true
+    vim.bo.readonly = true
+    vim.bo.modifiable = false
+    vim.cmd [[au WinClosed <buffer> lua NeofsQuit()]]
+
+    local width = math.floor(vim_width * 0.4)
+    local height = math.floor(vim_height * 0.7)
+    local col = vim_width * 0.1 + width
+    local row = vim_height * 0.15
+
+    fm.preview.buffer = vim.api.nvim_create_buf(false, true)
+    fm.preview.window = vim.api.nvim_open_win(fm.preview.buffer, true, {
+      relative = 'editor',
+      width = width,
+      height = height,
+      col = col,
+      row = row,
+      style = 'minimal',
+      focusable = false
+    })
+
+    vim.wo[fm.preview.window].cursorline = false
+    vim.bo.readonly = true
+    vim.bo.modifiable = false
+    vim.cmd [[au WinClosed <buffer> lua NeofsQuit()]]
+
+    fm.refresh()
+
+    vim.api.nvim_set_current_win(fm.navigator.window)
+
+    M.fm = fm
+  end
 end
 
 function M.setup(opts)
