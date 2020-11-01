@@ -42,15 +42,15 @@ function M.util.fs_readdir(dir)
     }
   end)
 
-  table.sort(result, 
-    function(x, y)
-      if x.stat.type == "directory" and y.stat.type ~= "directory" then
-        return true
-      else
-        return x.name:lower() < y.name:lower()
-      end
-    end
-  )
+--   table.sort(result, 
+--     function(x, y)
+--       if x.stat.type == "directory" and y.stat.type ~= "directory" then
+--         return true
+--       else
+--         return x.name:lower() < y.name:lower()
+--       end
+--     end
+--   )
 
   return result
 end
