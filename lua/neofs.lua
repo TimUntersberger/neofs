@@ -31,7 +31,7 @@ function M.util.fs_readdir(dir)
   if not M.is_windows then
     cmd = "ls "
   end
-  return M.util.map(vim.fn.systemlist(cmd .. dir), function (x)
+  local result = M.util.map(vim.fn.systemlist(cmd .. dir), function (x)
     local name = x:sub(1, -2)
     local path = dir .. M.fs_seperator .. name
 
@@ -41,6 +41,18 @@ function M.util.fs_readdir(dir)
       stat = vim.loop.fs_stat(path)
     }
   end)
+
+  table.sort(result, 
+    function(x, y)
+      if x.stat.type == "directory" and y.stat.type ~= "directory" then
+        return true
+      else
+        return x.name:lower() < y.name:lower()
+      end
+    end
+  )
+
+  return result
 end
 
 function NeofsMove(direction)
@@ -415,7 +427,7 @@ function M.open(path)
     -- Have to defer this, else the preview window disappears ??? like what the fuck
     vim.defer_fn(function()
       vim.api.nvim_set_current_win(fm.navigator.window)
-    end, 10)
+    end, 1)
 
     M.fm = fm
   end
