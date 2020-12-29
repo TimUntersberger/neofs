@@ -2,7 +2,11 @@ local M = {
   fm = nil,
   config = {
     devicons = false,
-    mappings = {}
+    mappings = {},
+    ignored_extensions = { 
+      exe = true, 
+      dll = true 
+    }
   }
 }
 
@@ -27,11 +31,12 @@ else
 end
 
 function M.util.fs_readdir(dir)
-  local cmd = "dir /b "
+  local cmd = [[dir /b "%s"]]
   if not M.is_windows then
-    cmd = "ls "
+    cmd = [[ls %s]]
   end
-  local result = M.util.map(vim.fn.systemlist(cmd .. dir), function (x)
+  local output = vim.fn.systemlist(string.format(cmd, dir))
+  local result = M.util.map(output, function (x)
     local name = x:sub(1, -2)
     local path = dir .. M.fs_seperator .. name
 
@@ -42,15 +47,15 @@ function M.util.fs_readdir(dir)
     }
   end)
 
---   table.sort(result, 
---     function(x, y)
---       if x.stat.type == "directory" and y.stat.type ~= "directory" then
---         return true
---       else
---         return x.name:lower() < y.name:lower()
---       end
---     end
---   )
+  table.sort(result, 
+    function(x, y)
+      if x.stat.type ~= y.stat.type then
+        return x.stat.type == "directory"
+      else
+        return x.name:lower() < y.name:lower()
+      end
+    end
+  )
 
   return result
 end
@@ -154,12 +159,16 @@ function NeofsDelete(recursive)
   end
 end
 
+local function get_item_filetype(item)
+  local ext_tokens = vim.split(item.name, '.', true)
+  return ext_tokens[#ext_tokens]
+end
+
 local function item_to_display_text(item)
   if M.config.devicons then
     local devicons = require('nvim-web-devicons')
     if item.stat.type == 'file' then
-      local ext_tokens = vim.split(item.name, '.', true)
-      local ext = ext_tokens[#ext_tokens]
+      local ext = get_item_filetype(item)
       local icon = devicons.get_icon(item.name, ext, { default = true })
       return icon .. " " .. item.name
     else
@@ -177,6 +186,17 @@ end
 function NeofsRefresh()
   if M.fm then
     M.fm.refresh()
+  end
+end
+
+function NeofsChangeCWD()
+  if M.fm then
+    local item = M.fm.navigator.item()
+    if item.stat.type ~= "file" then
+      vim.cmd(string.format("cd %s", item.path))
+      M.fm.path = item.path
+      M.fm.refresh()
+    end
   end
 end
 
@@ -223,8 +243,10 @@ end
 function NeofsOnCursorMoved()
   if M.fm then
     local pos = vim.api.nvim_win_get_cursor(M.fm.navigator.window)
-    M.fm.navigator.row = pos[1]
-    M.fm.refresh_preview()
+    if M.fm.navigator.row ~= pos[1] then
+      M.fm.navigator.row = pos[1]
+      M.fm.refresh_preview()
+    end
   end
 end
 
@@ -238,6 +260,7 @@ local function define_mappings(buffer)
     mappings['n']['l'] = [[:lua NeofsMove('right')<CR>]]
     mappings['n']['<cr>'] = [[:lua NeofsMove('right')<CR>]]
 
+    mappings['n']['c'] = [[:lua NeofsChangeCWD()<CR>]]
     mappings['n']['f'] = [[:lua NeofsCreateFile()<CR>]]
     mappings['n']['d'] = [[:lua NeofsCreateDirectory()<CR>]]
     mappings['n']['<c-r>'] = [[:lua NeofsRename()<CR>]]
@@ -305,6 +328,19 @@ local function fm_new(path)
       return
     end
 
+    local ext = get_item_filetype(item)
+
+    if M.config.ignored_extensions[ext] then
+      vim.api.nvim_buf_call(fm.preview.buffer, function()
+        vim.bo.readonly = false
+        vim.bo.modifiable = true
+        vim.api.nvim_buf_set_lines(fm.preview.buffer, 0, -1, false, {"<HIDDEN>"})
+        vim.bo.readonly = true
+        vim.bo.modifiable = false
+      end)
+      return
+    end
+
     if item.stat.type == "file" then
       local file = vim.loop.fs_open(item.path, "r", 777)
       local content = vim.loop.fs_read(file, item.stat.size, 0)
@@ -347,7 +383,7 @@ end
 
 function M.open(path) 
   path = path or vim.loop.cwd()
-  if not M.fm then
+  if path and path ~= "" and not M.fm then
     local fm = fm_new(path)
     local vim_height = vim.api.nvim_eval [[&lines]]
     local vim_width = vim.api.nvim_eval [[&columns]]
@@ -367,6 +403,8 @@ function M.open(path)
       style = 'minimal',
       focusable = false
     })
+
+    vim.api.nvim_win_set_cursor(fm.navigator.window, { 1, 0 })
 
     vim.wo.winhl = "Normal:Normal"
 
