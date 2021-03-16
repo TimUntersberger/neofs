@@ -1,5 +1,8 @@
 local M = {
   fm = nil,
+  util = {},
+  is_windows = jit.os == "Windows",
+  fs_seperator = "/",
   config = {
     devicons = false,
     mappings = {},
@@ -10,9 +13,11 @@ local M = {
   }
 }
 
-NeofsCustomMappings = {}
+if M.is_windows then
+  M.fs_seperator = "\\"
+end
 
-M.util = {}
+NeofsCustomMappings = {}
 
 function M.util.map(array, f)
   local new = {}
@@ -22,12 +27,14 @@ function M.util.map(array, f)
   return new
 end
 
-M.is_windows = jit.os == "Windows"
-
-if M.is_windows then
-  M.fs_seperator = "\\"
-else
-  M.fs_seperator = "/"
+function M.util.filter(array, f)
+  local new = {}
+  for _, x in ipairs(array) do
+    if f(x) then
+      table.insert(new, x)
+    end
+  end
+  return new
 end
 
 function M.util.fs_readdir(dir)
@@ -47,8 +54,16 @@ function M.util.fs_readdir(dir)
     }
   end)
 
+  -- Remove files that we can't access because of privilege problems
+  result = M.util.filter(result, function(x) 
+    return x.stat ~= nil 
+  end)
+
   table.sort(result, 
     function(x, y)
+      if x.stat == nil then 
+        inspect(x)
+      end
       if x.stat.type ~= y.stat.type then
         return x.stat.type == "directory"
       else
