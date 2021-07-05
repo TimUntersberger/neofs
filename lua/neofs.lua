@@ -44,9 +44,8 @@ function M.util.fs_readdir(dir)
   end
   local output = vim.fn.systemlist(string.format(cmd, dir))
   local result = M.util.map(output, function (x)
-    local name = x:sub(1, -2)
+	local name = x
     local path = dir .. M.fs_seperator .. name
-
     return {
       name = name,
       path = path,
