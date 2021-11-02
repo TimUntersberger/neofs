@@ -209,8 +209,7 @@ function NeofsChangeCWD()
     local item = M.fm.navigator.item()
     if item.stat.type ~= "file" then
       vim.cmd(string.format("cd %s", item.path))
-      M.fm.path = item.path
-      M.fm.refresh()
+      NeofsQuit()
     end
   end
 end
