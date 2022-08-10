@@ -397,7 +397,7 @@ local function fm_new(path)
   return fm
 end
 
-function M.open(path) 
+function M.open(path)
   path = path or vim.loop.cwd()
   if path and path ~= "" and not M.fm then
     local fm = fm_new(path)
@@ -420,7 +420,6 @@ function M.open(path)
       focusable = false
     })
 
-    vim.api.nvim_win_set_cursor(fm.navigator.window, { 1, 0 })
 
     vim.wo.winhl = "Normal:Normal"
 
@@ -444,6 +443,7 @@ function M.open(path)
       row = row,
       style = 'minimal'
     })
+    vim.api.nvim_win_set_cursor(fm.navigator.window, { 1, 0 })
 
     define_mappings(fm.navigator.buffer)
 
