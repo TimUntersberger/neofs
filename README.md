@@ -65,6 +65,20 @@ To see more details about each field you can use `print(vim.inspect(...))`
 
 ### Functions
 
+#### open()
+
+Takes an optional path parameter. If this is empty, the current working directory is opened.
+
+This function should be bound to a keymap like
+
+```lua
+vim.keymap.set("n", "<leader>fs", function()
+  require("neofs").open()
+end, {noremap = true})
+```
+
+It can also be invoked by pressing `:lua require("neofs").open("~/proj")`.
+
 #### navigator.item()
 
 Returns the item under the cursor.
