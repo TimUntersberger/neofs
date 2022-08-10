@@ -65,7 +65,7 @@ To see more details about each field you can use `print(vim.inspect(...))`
 
 ### Functions
 
-### open()
+#### open()
 
 Takes an optional path parameter. If this is empty, the current working directory is opened.
 
